@@ -1,8 +1,14 @@
+
 <!--
     To generate the readme, run:
 
-    python -m readme2tex --output README.md .README.md
+    docker run -ti --rm -v DOLLARSIGN(pwd):/test/usr maltegruber/readme-tex:1.0.0
+
+    see: https://github.com/MalteGruber/readme-tex
+
 -->
+
+
 
 # 'the chase' implementation
 
@@ -10,7 +16,7 @@ This contains implementations of some papers on the chase. I'll attempt to summa
 
 ## Background
 
-Connected with relational databases that you might be more familiar with is the concept of *relational algebra*. What we called tables are now called *relations*, which we can think of as sets of tuples of some fixed length. We can use first order logic to express constraints.
+Connected with relational databases that you might be more familiar with is the concept of *relational algebra*. What we called tables are now called *relations*, which we can think of as sets of tuples of some fixed length.
 
 ### Likes
 | liker| likee |
@@ -25,13 +31,19 @@ Connected with relational databases that you might be more familiar with is the 
 | John |  John |
 | Mary | John   |
 
-We can express that "`Name` is a primary key of `Manage` by ![\forall x](doc/teximg/tex_img_0_WKAN7.png). We can express that `likee` is a foreign key ![Likes \rightarrow Manage](doc/teximg/tex_img_1_2UQJ9.png)
 
-![a^2 = b^2](doc/teximg/tex_img_2_9XE3F.png)
+![a^2 = b^2](doc/teximg/tex_img_0_ZYQDB.png)
 
-![a^2 = b^2](doc/teximg/tex_img_3_QJ98W.png)
+![a^2 = b^2](doc/teximg/tex_img_1_4NDPO.png)
 
-![\begin{tabular}{ |p{3cm}||p{3cm}|p{3cm}|p{3cm}|  } \hline \multicolumn{4}{|c|}{Country List} \\ \hline Country Name     or Area Name& ISO ALPHA 2 Code &ISO ALPHA 3 Code&ISO numeric Code\\ \hline Afghanistan   & AF    &AFG&   004\\ Aland Islands&   AX  & ALA   &248\\ Albania &AL & ALB&  008\\ Algeria    &DZ & DZA&  012\\ American Samoa&   AS  & ASM&016\\ Andorra& AD  & AND   &020\\ Angola& AO  & AGO&024\\ \hline\end{tabular}](doc/teximg/tex_img_4_ZHI4Z.png)
+
+
+![\begin{tabular}{ |c|c| } \hline \multicolumn{2}{ |c| }{Likes}   \\ \hline \textbf{Liker}  & \textbf{Likee}\\ \hline Matt            & John          \\ \hline John            & John          \\ \hline John            & Mary          \\ \hline\end{tabular}](doc/teximg/tex_img_2_JFEBO.png)
+
+
+![\begin{tabular}{ |c|c| } \hline \multicolumn{2}{ |c| }{Manage}   \\ \hline \textbf{Liker}  & \textbf{Likee}\\ \hline Matt            & John          \\ \hline John            & John          \\ \hline Mary            & John          \\ \hline\end{tabular}](doc/teximg/tex_img_3_L06KF.png)
+
+We can use first order logic to express constraints. We can express that "`Name` is a primary key of `Manage` by ![\forall n, m_1, m_2: (n, m_1) \land (n, m_2) \rightarrow m_1=m_2](doc/teximg/tex_img_4_ZHV0L.png). We can express that `likee` is a foreign key ![Likes \rightarrow Manage](doc/teximg/tex_img_5_Y8134.png) by writing ![\forall r, e: (r, e) \rightarrow \exists m: (e, m)](doc/teximg/tex_img_6_842WB.png)
 
 ## What
 

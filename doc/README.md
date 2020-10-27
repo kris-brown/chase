@@ -1,8 +1,14 @@
+
 <!--
     To generate the readme, run:
 
-    python -m readme2tex --output README.md .README.md
+    docker run -ti --rm -v DOLLARSIGN(pwd):/test/usr maltegruber/readme-tex:1.0.0
+
+    see: https://github.com/MalteGruber/readme-tex
+
 -->
+
+
 
 # 'the chase' implementation
 
@@ -10,7 +16,7 @@ This contains implementations of some papers on the chase. I'll attempt to summa
 
 ## Background
 
-Connected with relational databases that you might be more familiar with is the concept of *relational algebra*. What we called tables are now called *relations*, which we can think of as sets of tuples of some fixed length. We can use first order logic to express constraints.
+Connected with relational databases that you might be more familiar with is the concept of *relational algebra*. What we called tables are now called *relations*, which we can think of as sets of tuples of some fixed length.
 
 ### Likes
 | liker| likee |
@@ -25,27 +31,31 @@ Connected with relational databases that you might be more familiar with is the 
 | John |  John |
 | Mary | John   |
 
-We can express that "`Name` is a primary key of `Manage` by $\forall x$. We can express that `likee` is a foreign key $Likes \rightarrow Manage$
-
-$$a^2 = b^2$$
 
 $a^2 = b^2$
 
-$\begin{tabular}{ |p{3cm}||p{3cm}|p{3cm}|p{3cm}|  }
- \hline
- \multicolumn{4}{|c|}{Country List} \\
- \hline
- Country Name     or Area Name& ISO ALPHA 2 Code &ISO ALPHA 3 Code&ISO numeric Code\\
- \hline
- Afghanistan   & AF    &AFG&   004\\
- Aland Islands&   AX  & ALA   &248\\
- Albania &AL & ALB&  008\\
- Algeria    &DZ & DZA&  012\\
- American Samoa&   AS  & ASM&016\\
- Andorra& AD  & AND   &020\\
- Angola& AO  & AGO&024\\
- \hline
-\end{tabular}$
+$a^2 = b^2$
+
+
+
+$$\begin{tabular}{ |c|c| } \hline
+ \multicolumn{2}{ |c| }{Likes}   \\ \hline
+ \textbf{Liker}  & \textbf{Likee}\\ \hline
+ Matt            & John          \\ \hline
+ John            & John          \\ \hline
+ John            & Mary          \\ \hline
+\end{tabular}$$
+
+
+$$\begin{tabular}{ |c|c| } \hline
+ \multicolumn{2}{ |c| }{Manage}   \\ \hline
+ \textbf{Liker}  & \textbf{Likee}\\ \hline
+ Matt            & John          \\ \hline
+ John            & John          \\ \hline
+ Mary            & John          \\ \hline
+\end{tabular}$$
+
+We can use first order logic to express constraints. We can express that "`Name` is a primary key of `Manage` by $\forall n, m_1, m_2: (n, m_1) \land (n, m_2) \rightarrow m_1=m_2$. We can express that `likee` is a foreign key $Likes \rightarrow Manage$ by writing $\forall r, e: (r, e) \rightarrow \exists m: (e, m)$
 
 ## What
 
