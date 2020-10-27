@@ -29,6 +29,7 @@ We can express that "`Name` is a primary key of `Manage` by $\forall x$. We can 
 
 $$a^2 = b^2$$
 
+$a^2 = b^2$
 
 $$\begin{tikzpicture}
 \newcounter{density}
