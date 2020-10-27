@@ -29,7 +29,8 @@ We can express that "`Name` is a primary key of `Manage` by <img src="https://ra
 
 <img src="https://rawgit.com/kris-brown/chase/master/svgs/e2bba634eee9d6889508a8a976961f45.svg?invert_in_darkmode" align=middle width=51.58858815pt height=26.7617526pt/>
 
-<p align="center"><img src="https://rawgit.com/kris-brown/chase/master/svgs/d7d325c9d05e5e8ec8cb813c4e42ff48.svg" align=middle width=2512.6820235pt height=16.438356pt/></p>
+
+<p align="center"><img src="https://rawgit.com/kris-brown/chase/master/svgs/522cbfbc866df378cb95b2ef083131b2.svg" align=middle width=743.8342626pt height=75.6164376pt/></p>
 
 ## What
 
