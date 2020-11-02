@@ -43,7 +43,7 @@ Now suppose we have a database $I$ and a set constraints $\Sigma$, we can ask wh
 
 ## Background - database homomorphisms
 
-One interesting relationship betweeen databases is whether one is a subset of the other.
+One interesting relationship between databases is whether one is a subset of the other.
 
 $$\begin{tabular}{ |c|c| } \hline
  \multicolumn{2}{ |c| }{R}   \\ \hline
@@ -85,7 +85,6 @@ Reading about what the chase is and how it works will be more interesting with c
 - Constraint Implication
 - Universal Solutions / Data Exchange
 - Certain Answers
-
 
 ## What
 The simplest variation of the chase considers each constraint as a potential trigger which can be *fired* to produce a new instance that satisfies that constraint. We then iteratively repeat this process until there exist no active triggers (i.e. produce a sequence of instances until we arrive at one which satisfies the constraints).
