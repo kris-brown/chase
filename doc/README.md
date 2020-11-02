@@ -39,7 +39,7 @@ $$\begin{tabular}{ |c|c| } \hline
 
 We can use [first-order logic](https://www.javatpoint.com/first-order-logic-in-artificial-intelligence) to express constraints. We can express that "`Employee` is a *primary key* of `Manage`" by $\forall x, y \in Manage: x_{Employee}=y_{Employee} \Rightarrow x=y$. We can express that "`Likee` is a *foreign key* $Likes \rightarrow Manage$" by writing $\forall x \in Likes: \exists mgr: (x_{Likee},\ mgr) \in {Manage}$
 
-Now suppose we have a database $I$ and a set constraints $\Sigma$, we can ask whether $I$ satisfies $\Sigma$. If not, we can imagine there being the best or nearest-relative of $I$ that *does* satisfy $\Sigma$. **The chase** is an algorithm that finds this other database, given $I$ and $\Sigma$. The remaining background material to cover concerns how define this notion of a "best" relative of $I$.
+Now suppose we have a database $I$ and a set constraints $\Sigma$, we can ask whether $I$ satisfies $\Sigma$. If not, we can imagine there being the best or nearest-relative of $I$ that *does* satisfy $\Sigma$. **The chase** is an algorithm that finds this other database, given $I$ and $\Sigma$. The remaining background material to cover concerns how to define this notion of a "best" relative of $I$.
 
 ## Background - database homomorphisms
 
