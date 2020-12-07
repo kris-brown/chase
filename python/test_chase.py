@@ -6,12 +6,19 @@ from chase import Rel, Inst, Match, And, EGD, TGD
 Run with python -m pytest test_chase.py
 """
 
-i1 = Inst.fromdict(A=(['col1', 'col2', 'col3'],
-                      [[1, 'x', 2],
-                      ['c', 'd', 3]]),
-                   B=(['col2', 'col4'],
-                      [['x', 'x'],
-                      ['x', 'y']]))
+i1_ = Inst.fromdict(A=(['col1', 'col2', 'col3'],
+                       [[1, 'x', 2],
+                       ['c', 'd', 3]]),
+                    B=(['col2', 'col4'],
+                       [['x', 'x'],
+                       ['x', 'y']]))
+
+i1 = Inst.fromcsv(['A', 'B'])
+
+
+def test_validate_fromcsv() -> None:
+    assert i1 == i1_
+
 
 iTriangle = Inst.fromdict_noattr(R=[[1, 2], [2, 3], [3, 1]])
 iTriangle11 = Inst.fromdict_noattr(R=[[1, 1], [1, 2], [2, 3], [3, 1]],

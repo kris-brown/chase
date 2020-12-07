@@ -1,8 +1,9 @@
 from typing import (Any, List as L, Set as S, Iterator as I, Dict as D,
-                    Optional as O, Tuple as T)
+                    Optional as O, Tuple as T, Union as U)
 from abc import ABCMeta, abstractmethod
 from prettytable import PrettyTable
 from string import ascii_lowercase
+import csv
 import copy
 
 
@@ -114,6 +115,8 @@ class Tup(object):
 
 class Rel(object):
     def __init__(self, name: str, attrs: L[str], tups: S[Tup]) -> None:
+        assert len(attrs) == len(set(attrs)), '''Column headers must be unique
+             %s''' % attrs
         self.name = name
         self.attrs = tuple(attrs)
         self.tups = tups
@@ -133,6 +136,19 @@ class Rel(object):
     @classmethod
     def empty(cls, name: str, attrs: L[str]) -> 'Rel':
         return cls(name, attrs, set())
+
+    @classmethod
+    def fromcsv(cls, pth: str) -> 'Rel':
+        def parse_int(x: str) -> U[str, int]:
+            return int(x) if x.isdigit() else x
+
+        rows = []
+        with open('../data/%s.csv' % pth, 'r') as f:
+            reader = csv.reader(f)
+            headers = next(reader)
+            for row in reader:
+                rows.append(list(map(parse_int, row)))
+        return cls(pth, headers, set(map(Tup.fromlist, rows)))
 
     @classmethod
     def fromlist(cls, name: str, xs: L[L[Any]], attrs: L[str] = None) -> 'Rel':
@@ -205,6 +221,11 @@ class Inst(object):
     @classmethod
     def fromdict(cls, **kwargs: T[L[str], L[L[Any]]]) -> 'Inst':
         return cls([Rel.fromlist(k, y, x) for k, (x, y) in kwargs.items()])
+
+    @classmethod
+    def fromcsv(cls, pth: U[str, L[str]]) -> 'Inst':
+        pths = [pth] if isinstance(pth, str) else pth
+        return cls([Rel.fromcsv(p) for p in pths])
 
     @property
     def names(self) -> S[str]:
