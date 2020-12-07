@@ -2,7 +2,7 @@
 <!--
     To generate the readme, run:
 
-    docker run -ti --rm -v DOLLARSIGN(pwd):/test/usr maltegruber/readme-tex:1.0.0
+    docker run -ti --rm -v /Users/ksb/chase:/test/usr maltegruber/readme-tex:1.0.0
 
     see: https://github.com/MalteGruber/readme-tex
 
