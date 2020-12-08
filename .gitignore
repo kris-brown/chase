@@ -4,3 +4,5 @@ python/.env/
 python/__pycache__/
 
 .mypy_cache/
+
+python/.hypothesis/

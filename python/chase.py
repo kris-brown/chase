@@ -3,8 +3,10 @@ from typing import (Any, List as L, Set as S, Iterator as I, Dict as D,
 from abc import ABCMeta, abstractmethod
 from prettytable import PrettyTable
 from string import ascii_lowercase
+import os
 import csv
 import copy
+import pathlib
 
 
 class Val(metaclass=ABCMeta):
@@ -88,7 +90,7 @@ class Tup(object):
         return hash(self.vals)
 
     @property
-    def vars(self) -> S[Var]:
+    def variables(self) -> S[Var]:
         return set([x for x in self.vals if isinstance(x, Var)])
 
     @property
@@ -99,24 +101,37 @@ class Tup(object):
     @classmethod
     def fromlist(cls, xs: L[Any]) -> 'Tup':
         def f(x: Any) -> Val:
-            if isinstance(x, str):
+            if isinstance(x, Val):
+                return x
+            elif isinstance(x, str):
                 return Const(x)
             elif isinstance(x, int):
                 return Var(x)
             else:
-                raise TypeError
+                raise TypeError(type(x))
         return cls([f(x) for x in xs])
 
-    def substitute(self, var: Var, val: Val) -> None:
+    def tolist(self) -> L[Val]:
+        return list(self.vals)
+
+    def substitute(self, var: Var, val: Val) -> 'Tup':
         '''Modify tuple, replacing a variable with a value'''
         if var in self:
-            self.vals = tuple([val if v == var else v for v in self.vals])
+            return Tup([val if v == var else v for v in self.vals])
+        else:
+            return self
 
 
 class Rel(object):
+    '''
+    A named relation with named attributes.
+    Tuple values are strings or int-indexed variables
+    '''
     def __init__(self, name: str, attrs: L[str], tups: S[Tup]) -> None:
         assert len(attrs) == len(set(attrs)), '''Column headers must be unique
              %s''' % attrs
+        assert isinstance(tups, set)
+        assert isinstance(attrs, list)
         self.name = name
         self.attrs = tuple(attrs)
         self.tups = tups
@@ -133,17 +148,27 @@ class Rel(object):
     def __iter__(self) -> I[Tup]:
         return iter(self.tups)
 
+    # CREATE
     @classmethod
     def empty(cls, name: str, attrs: L[str]) -> 'Rel':
         return cls(name, attrs, set())
 
     @classmethod
     def fromcsv(cls, pth: str) -> 'Rel':
+        '''
+        Interprets integer-like strings as variables
+
+        Tries to interpret the path as just the name of the csv file
+        But defaults to a generic filepath otherwise.
+        '''
         def parse_int(x: str) -> U[str, int]:
             return int(x) if x.isdigit() else x
 
         rows = []
-        with open('../data/%s.csv' % pth, 'r') as f:
+        data = pathlib.Path(__file__).parent.parent.absolute()
+        just_name = '%s/data/%s.csv' % (data, pth)
+        fi = just_name if os.path.exists(just_name) else pth
+        with open(fi, 'r') as f:
             reader = csv.reader(f)
             headers = next(reader)
             for row in reader:
@@ -151,7 +176,12 @@ class Rel(object):
         return cls(pth, headers, set(map(Tup.fromlist, rows)))
 
     @classmethod
-    def fromlist(cls, name: str, xs: L[L[Any]], attrs: L[str] = None) -> 'Rel':
+    def fromlist(cls, xs: L[L[Any]], name: str = '', attrs: L[str] = None
+                 ) -> 'Rel':
+        '''
+        Create Relation from a list of tuples
+        Optionally give relation and attr names
+        '''
         assert xs, "Gave empty relation to Rel.fromlist"
         tups = [Tup.fromlist(x) for x in xs]
         assert len(set([str(t.sig) for t in tups])) == 1
@@ -159,22 +189,39 @@ class Rel(object):
         assert len(attrs) == len(xs[0]), "Gave attr list with wrong #"
         return cls(name, attrs, set(tups))
 
+    # PROPERTIES
     @property
     def max_var(self) -> int:
-        return max([max([v.num for v in t.vars] or [0]) for t in self])
+        '''
+        Greatest index of a variable in the relation
 
+        Perhaps this can be stored and only updated if a tuple is added
+        '''
+        return max([max([v.num for v in t.variables] or [0]) for t in self])
+
+    # UPDATE STATE
     def add(self, t: Tup) -> None:
         self.tups.add(t)
 
+    # MODIFY
     def join(self, R: 'Rel', save_overlap: bool = False) -> 'Rel':
+        '''
+        Join two relations based on their attribute names
+
+        Optionally keep the overlapping attributes in the result
+        '''
+
         overlap = set(self.attrs) & set(R.attrs)
         inds = [(self.attrs.index(x), R.attrs.index(x)) for x in overlap]
         selfinds = [i for i in range(len(self.attrs))
                     if save_overlap or self.attrs[i] not in overlap]
         Rinds = [i for i in range(len(R.attrs)) if R.attrs[i] not in overlap]
-        res = Rel(self.name + ' ⋈ ' + R.name, [self.attrs[i] for i in selfinds
-                                               ] + [R.attrs[i] for i in Rinds],
-                  set())
+
+        # Give meaningful name iff the joined relations have names
+        name = self.name + ' ⋈ ' + R.name if (self.name + R.name) else ''
+
+        res = Rel(name, [self.attrs[i] for i in selfinds
+                         ] + [R.attrs[i] for i in Rinds], set())
         for tup in self:
             for Rtup in R:
                 if all([tup[i] == Rtup[j] for i, j in inds]):
@@ -185,8 +232,24 @@ class Rel(object):
 
     def substitute(self, var: Var, val: Val) -> None:
         '''Modify relation, replacing a variable with a value'''
-        for t in self:
-            t.substitute(var, val)
+        old = list(self)
+        self.tups = set()
+        for t in old:
+            self.add(t.substitute(var, val))
+
+    def rename(self, name: str) -> 'Rel':
+        return Rel(name, list(self.attrs), self.tups)
+
+    def rename_attrs(self, **kwargs: str) -> 'Rel':
+        '''Rename with a dictionary of old_col-> new_col pairs'''
+        err = '%s not found in %s\'s attrs %s'
+        for k in kwargs:
+            assert k in self.attrs, err % (k, self.name, self.attrs)
+        attrs = [kwargs.get(x, x) for x in self.attrs]
+        return Rel(self.name, attrs, self.tups)
+
+    def rename_attr(self, old: str, new: str) -> 'Rel':
+        return self.rename_attrs(**{old: new})
 
 
 class Inst(object):
@@ -195,6 +258,9 @@ class Inst(object):
 
     def __iter__(self) -> I[Rel]:
         return iter(self.rels.values())
+
+    def __len__(self) -> int:
+        return len(self.rels)
 
     def __str__(self) -> str:
         return '\n'.join(map(str, self.rels.values()))
@@ -212,15 +278,20 @@ class Inst(object):
 
     @property
     def max_var(self) -> int:
-        return max([r.max_var for r in self])
+        return max([r.max_var for r in self]) if len(self) > 0 else 0
 
     @classmethod
     def fromdict_noattr(cls, **kwargs: L[L[Any]]) -> 'Inst':
-        return cls([Rel.fromlist(k, v) for k, v in kwargs.items()])
+        return cls([Rel.fromlist(v, k) for k, v in kwargs.items()])
 
     @classmethod
     def fromdict(cls, **kwargs: T[L[str], L[L[Any]]]) -> 'Inst':
-        return cls([Rel.fromlist(k, y, x) for k, (x, y) in kwargs.items()])
+        return cls([Rel.fromlist(y, k, x) for k, (x, y) in kwargs.items()])
+
+    def todict(self) -> D[str, T[L[str], L[L[Val]]]]:
+        def f(r: Rel) -> T[L[str], L[L[Val]]]:
+            return list(r.attrs), [t.tolist() for t in r.tups]
+        return {r.name: f(r) for r in self}
 
     @classmethod
     def fromcsv(cls, pth: U[str, L[str]]) -> 'Inst':
@@ -239,7 +310,11 @@ class Atom(object):
 
 
 class Query(metaclass=ABCMeta):
-
+    '''
+    Conjunctive query. A logical constraint with variables that, when the
+    query is satisfied, get matched to values.
+    Running the query returns all satisfying matches.
+    '''
     @property
     @abstractmethod
     def var(self) -> S[Var]:
@@ -267,7 +342,7 @@ class Match(Query):
     '''
     def __init__(self, atom: Atom, var: S[Var] = None) -> None:
         self.atom = atom
-        self._var = atom.tup.vars if var is None else var
+        self._var = atom.tup.variables if var is None else var
         assert self._var
         assert all([v in atom.tup for v in self._var])
 
@@ -342,7 +417,7 @@ class And(Query):
 
 
 class Dependency(metaclass=ABCMeta):
-
+    '''Sum type of EGD and TGD'''
     def fire(self, i: Inst, counter: int = None) -> O[T[Inst, int]]:
         cntr = counter or i.max_var + 1
         return self._fire(i, cntr)
@@ -353,6 +428,12 @@ class Dependency(metaclass=ABCMeta):
 
 
 class EGD(Dependency):
+    '''
+    Equality-generating dependency with the form Ψ(x,y) -> x=y
+
+    If the query is matched, then the variables 0 and 1 are
+    indicated to be equal.
+    '''
     def __init__(self, q: Query) -> None:
         self.q = q
         assert q.var == set([Var(0), Var(1)])
@@ -397,11 +478,11 @@ class TGD(Dependency):
 
     @property
     def exists_vars(self) -> S[Var]:
-        return set.union(*[x.vars for _, x in self.exists]) - self.q.var
+        return set.union(*[x.variables for _, x in self.exists]) - self.q.var
 
     @property
     def bound_vars(self) -> S[Var]:
-        return set.union(*[x.vars for _, x in self.exists]) & self.q.var
+        return set.union(*[x.variables for _, x in self.exists]) & self.q.var
 
     def _fire(self, i: Inst, counter: int) -> O[T[Inst, int]]:
         c = [counter]
@@ -423,6 +504,8 @@ class TGD(Dependency):
 
 
 class Dependencies(object):
+    '''Methods depending on sets of dependencies'''
+
     def __init__(self, deps: S[Dependency]) -> None:
         self.deps = deps
 
