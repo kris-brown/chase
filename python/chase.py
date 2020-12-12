@@ -1,107 +1,82 @@
 from typing import (Any, List as L, Set as S, Iterator as I, Dict as D,
-                    Optional as O, Tuple as T, Union as U)
+                    Optional as O, Tuple as T, Union as U, FrozenSet as FS)
 from abc import ABCMeta, abstractmethod
 from prettytable import PrettyTable
 from string import ascii_lowercase
+from dataclasses import dataclass, field
 import os
 import csv
 import copy
+import random
 import pathlib
 
 
-class Val(metaclass=ABCMeta):
-    @abstractmethod
-    def isVar(self) -> bool:
-        raise NotImplementedError
-
-    @property
-    def dtype(self) -> str:
-        return 'str'  # add support for other dtypes later
-
-    @abstractmethod
-    def __lt__(self, other: Any) -> bool:
-        raise NotImplementedError
-
-
-class Var(Val):
-    def __init__(self, num: int) -> None:
-        self.num = num
+@dataclass(order=True, frozen=True)
+class Var:
+    '''Variables, indexed by integers'''
+    num: int
 
     def __str__(self) -> str:
         return str(self.num)
 
-    __repr__ = __str__
-
-    def __eq__(self, other: Any) -> bool:
-        return isinstance(other, Var) and self.num == other.num
-
-    def __lt__(self, other: Any) -> bool:
-        return isinstance(other, Var) and self.num < other.num
-
-    def __hash__(self) -> int:
-        return hash(self.num)
-
-    def isVar(self) -> bool:
-        return True
+    def cmpstr(self) -> str:
+        return '0%d' % self.num
 
 
-class Const(Val):
-    def __init__(self, value: str) -> None:
-        self.value = value
+@dataclass(order=True, frozen=True)
+class Const:
+    '''Stand-in type for all concrete values'''
+    value: str
 
     def __str__(self) -> str:
-        return str(self.value)
+        return self.value
 
-    __repr__ = __str__
-
-    def __eq__(self, other: Any) -> bool:
-        return isinstance(other, Const) and self.value == other.value
-
-    def __lt__(self, other: Any) -> bool:
-        return isinstance(other, Const) and self.value < other.value
-
-    def __hash__(self) -> int:
-        return hash(self.value)
-
-    def isVar(self) -> bool:
-        return False
+    def cmpstr(self) -> str:
+        return '1' + self.value
 
 
-class Tup(object):
-    def __init__(self, vals: L[Val]) -> None:
-        self.vals = tuple(vals)
+V0, V1 = Var(0), Var(1)
+Val = U[Var, Const]
+
+
+class Tup(metaclass=ABCMeta):
+    '''Relational tuples, i.e. sequences of Vars or Consts'''
+    def __init__(self, vals: U[L[Val], T[Val, ...]]) -> None:
+        self.vals = vals
 
     def __len__(self) -> int:
         return len(self.vals)
 
-    def __str__(self) -> str:
-        return str(self.vals)
+    def __lt__(self, other: object) -> bool:
+        assert isinstance(other, Tup)
+        return [v.cmpstr() for v in self] < [v.cmpstr() for v in other]
 
-    def __eq__(self, other: Any) -> bool:
-        return isinstance(other, Tup) and self.vals == other.vals
+    def __str__(self) -> str:
+        return '(%s)' % ','.join(map(str, self.vals))
 
     def __iter__(self) -> I[Val]:
         return iter(self.vals)
 
+        return hash(tuple(self.vals))
+
     def __getitem__(self, key: int) -> Val:
         return self.vals[key]
-
-    def __hash__(self) -> int:
-        return hash(self.vals)
 
     @property
     def variables(self) -> S[Var]:
         return set([x for x in self.vals if isinstance(x, Var)])
 
     @property
-    def sig(self) -> L[str]:
-        '''Signature of tuple, giving the types of each arg'''
-        return [x.dtype for x in self]
+    def hash(self) -> int:
+        return hash(tuple(self.vals))
 
     @classmethod
     def fromlist(cls, xs: L[Any]) -> 'Tup':
+        '''
+        Take a list of strings, interpret int-like strings as Variables
+        '''
         def f(x: Any) -> Val:
-            if isinstance(x, Val):
+            if isinstance(x, (Var, Const)):
                 return x
             elif isinstance(x, str):
                 return Const(x)
@@ -111,30 +86,61 @@ class Tup(object):
                 raise TypeError(type(x))
         return cls([f(x) for x in xs])
 
-    def tolist(self) -> L[Val]:
-        return list(self.vals)
 
-    def substitute(self, var: Var, val: Val) -> 'Tup':
+@dataclass()
+class MutTup(Tup):
+    '''Mutable relational tuple'''
+    vals: L[Val]
+
+    @classmethod
+    def fromlist(cls, xs: L[Any]) -> 'MutTup':
+        '''Use the base class Tup method to make a mutable one'''
+        return cls.frombase(super(cls, cls).fromlist(xs))
+
+    def substitute(self, var: Var, val: Val) -> None:
         '''Modify tuple, replacing a variable with a value'''
-        if var in self:
-            return Tup([val if v == var else v for v in self.vals])
-        else:
-            return self
+        for i in range(len(self)):
+            if self[i] == var:
+                self.vals[i] = val
+
+    @classmethod
+    def frombase(cls, t: Tup) -> 'MutTup':
+        return cls(list(t.vals))
 
 
-class Rel(object):
+@dataclass(frozen=True)
+class ImmTup(Tup):
+    '''Immutable relational tuple'''
+    vals: T[Val, ...]
+
+    @classmethod
+    def fromlist(cls, xs: L[Any]) -> 'ImmTup':
+        '''Use the base class Tup method to make an immutable one'''
+        return cls.frombase(super(cls, cls).fromlist(xs))
+
+    @classmethod
+    def frombase(cls, t: Tup) -> 'ImmTup':
+        return cls(tuple(t.vals))
+
+    def replace(self, i: int, v: Val) -> 'ImmTup':
+        '''Creates a new copy'''
+        return ImmTup(tuple(v if i == j else x for j, x in enumerate(self)))
+
+
+@dataclass(order=True)
+class Rel:
     '''
     A named relation with named attributes.
     Tuple values are strings or int-indexed variables
     '''
-    def __init__(self, name: str, attrs: L[str], tups: S[Tup]) -> None:
-        assert len(attrs) == len(set(attrs)), '''Column headers must be unique
-             %s''' % attrs
-        assert isinstance(tups, set)
-        assert isinstance(attrs, list)
-        self.name = name
-        self.attrs = tuple(attrs)
-        self.tups = tups
+    name: str = ''
+    attrs: L[str] = field(default_factory=list)
+    tups: L[MutTup] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        n = len(self.attrs)
+        assert n == len(set(self.attrs))
+        assert all([len(x) == n for x in self])
 
     def __str__(self) -> str:
         t = PrettyTable(self.attrs)
@@ -142,17 +148,22 @@ class Rel(object):
             t.add_row(tup)
         return '{}\n{}'.format(self.name, t)
 
-    def __eq__(self, other: Any) -> bool:
-        return isinstance(other, Rel) and vars(self) == vars(other)
+    def __eq__(self, other: object) -> bool:
+        '''
+        We need custom EQ method because we do
+        not care about the ORDER of the rels
+        '''
+        if isinstance(other, Rel):
+            if self.name == other.name:
+                if sorted(other.attrs) == sorted(self.attrs):
+                    return sorted(self.tups) == sorted(
+                        other.permute(self.attrs).tups)
+        return False
 
-    def __iter__(self) -> I[Tup]:
+    def __iter__(self) -> I[MutTup]:
         return iter(self.tups)
 
     # CREATE
-    @classmethod
-    def empty(cls, name: str, attrs: L[str]) -> 'Rel':
-        return cls(name, attrs, set())
-
     @classmethod
     def fromcsv(cls, pth: str) -> 'Rel':
         '''
@@ -173,7 +184,7 @@ class Rel(object):
             headers = next(reader)
             for row in reader:
                 rows.append(list(map(parse_int, row)))
-        return cls(pth, headers, set(map(Tup.fromlist, rows)))
+        return cls(pth, headers, list(map(MutTup.fromlist, rows)))
 
     @classmethod
     def fromlist(cls, xs: L[L[Any]], name: str = '', attrs: L[str] = None
@@ -182,32 +193,64 @@ class Rel(object):
         Create Relation from a list of tuples
         Optionally give relation and attr names
         '''
-        assert xs, "Gave empty relation to Rel.fromlist"
-        tups = [Tup.fromlist(x) for x in xs]
-        assert len(set([str(t.sig) for t in tups])) == 1
-        attrs = attrs or list(ascii_lowercase[:len(xs[0])])
-        assert len(attrs) == len(xs[0]), "Gave attr list with wrong #"
-        return cls(name, attrs, set(tups))
+        tups = [MutTup.fromlist(x) for x in xs]
+        if attrs is None:
+            if not xs:
+                attrs = []
+            else:
+                attrs = list(ascii_lowercase[:len(xs[0])])
+
+        if xs:
+            assert len(attrs) == len(xs[0]), "Gave attr list with wrong #"
+
+        return cls(name, attrs, tups)
 
     # PROPERTIES
+    @property
+    def trivial(self) -> bool:
+        return len(self.attrs) == 0 and not self.empty
+
+    @property
+    def empty(self) -> bool:
+        return len(self.tups) == 0
+
     @property
     def max_var(self) -> int:
         '''
         Greatest index of a variable in the relation
-
         Perhaps this can be stored and only updated if a tuple is added
         '''
-        return max([max([v.num for v in t.variables] or [0]) for t in self])
+        return max([max([v.num for v in t.variables] or [-1]
+                        ) for t in self] or [-1])
 
-    # UPDATE STATE
-    def add(self, t: Tup) -> None:
-        self.tups.add(t)
+    def rename(self, name: str) -> 'Rel':
+        '''Create a copy'''
+        return Rel(name, self.attrs, self.tups)
 
-    # MODIFY
+    def permute(self, col_order: L[str]) -> 'Rel':
+        '''Create a copy with columns rearranged or removed'''
+        inds = [self.attrs.index(x) for x in col_order]
+        out = copy.deepcopy(self)
+        out.attrs = col_order
+        for j in range(len(out.tups)):
+            out.tups[j] = MutTup([out.tups[j][i] for i in inds])
+        return out
+
+    # MODIFY (do we need remove duplicates method, renormalize variables?)
+    def clean(self) -> None:
+        '''Remove duplicates'''
+        seen: S[int] = set()
+        for t in list(self):
+            h = t.hash
+            if h in seen:
+                self.tups.remove(t)
+            else:
+                seen.add(h)
+
     def join(self, R: 'Rel', save_overlap: bool = False) -> 'Rel':
         '''
+        "Nested loop join" algorithm
         Join two relations based on their attribute names
-
         Optionally keep the overlapping attributes in the result
         '''
 
@@ -220,69 +263,85 @@ class Rel(object):
         # Give meaningful name iff the joined relations have names
         name = self.name + ' ⋈ ' + R.name if (self.name + R.name) else ''
 
-        res = Rel(name, [self.attrs[i] for i in selfinds
-                         ] + [R.attrs[i] for i in Rinds], set())
+        res = []
         for tup in self:
             for Rtup in R:
                 if all([tup[i] == Rtup[j] for i, j in inds]):
-                    res.add(Tup([tup[i] for i in selfinds] + [
+                    res.append(MutTup([tup[i] for i in selfinds] + [
                         Rtup[i] for i in Rinds]))
 
-        return res
+        result = Rel(name, [self.attrs[i] for i in selfinds
+                            ] + [R.attrs[i] for i in Rinds], res)
+        result.clean()
+        # if result.attrs == ['x0', 'x1']:
+        #     breakpoint()
+        return result
 
     def substitute(self, var: Var, val: Val) -> None:
         '''Modify relation, replacing a variable with a value'''
-        old = list(self)
-        self.tups = set()
-        for t in old:
-            self.add(t.substitute(var, val))
+        for t in self:
+            t.substitute(var, val)
 
-    def rename(self, name: str) -> 'Rel':
-        return Rel(name, list(self.attrs), self.tups)
-
-    def rename_attrs(self, **kwargs: str) -> 'Rel':
-        '''Rename with a dictionary of old_col-> new_col pairs'''
+    def rename_attrs(self, **kwargs: str) -> None:
+        '''Rename with a dictionary of old_col -> new_col pairs'''
         err = '%s not found in %s\'s attrs %s'
         for k in kwargs:
             assert k in self.attrs, err % (k, self.name, self.attrs)
-        attrs = [kwargs.get(x, x) for x in self.attrs]
-        return Rel(self.name, attrs, self.tups)
+        self.attrs = [kwargs.get(x, x) for x in self.attrs]
 
-    def rename_attr(self, old: str, new: str) -> 'Rel':
-        return self.rename_attrs(**{old: new})
+    def rename_attr(self, old: str, new: str) -> None:
+        self.rename_attrs(**{old: new})
 
 
-class Inst(object):
-    def __init__(self, rels: L[Rel]) -> None:
-        self.rels = {r.name: r for r in rels}
+trivial = Rel(tups=[MutTup([])])  # trivially true query result
+
+
+@dataclass(eq=True)
+class Inst:
+    rels: L[Rel]
+
+    def __post_init__(self) -> None:
+        n = [r.name for r in self]
+        assert len(n) == len(set(n))
+        self.rels = sorted(self.rels)
+        self.clean()
+
+    def __eq__(self, other: object) -> bool:
+        '''
+        We need custom EQ method because we do
+        not care about the ORDER of the rels
+        '''
+        if isinstance(other, Inst):
+            return sorted(self.rels) == sorted(other.rels)
+        else:
+            return False
 
     def __iter__(self) -> I[Rel]:
-        return iter(self.rels.values())
+        return iter(self.rels)
 
     def __len__(self) -> int:
         return len(self.rels)
 
     def __str__(self) -> str:
-        return '\n'.join(map(str, self.rels.values()))
-
-    __repr__ = __str__
-
-    def __eq__(self, other: Any) -> bool:
-        return isinstance(other, Inst) and self.rels == other.rels
+        return '\n'.join(map(str, self.rels))
 
     def __getitem__(self, key: str) -> Rel:
         for r in self:
             if r.name == key:
                 return r
-        raise KeyError
+        raise KeyError(key)
 
     @property
     def max_var(self) -> int:
-        return max([r.max_var for r in self]) if len(self) > 0 else 0
+        return max([r.max_var for r in self]) if len(self) > 0 else -1
 
     @classmethod
     def fromdict_noattr(cls, **kwargs: L[L[Any]]) -> 'Inst':
         return cls([Rel.fromlist(v, k) for k, v in kwargs.items()])
+
+    @classmethod
+    def union(cls, *xs: 'Inst') -> 'Inst':
+        return cls([rel for rels in xs for rel in rels])
 
     @classmethod
     def fromdict(cls, **kwargs: T[L[str], L[L[Any]]]) -> 'Inst':
@@ -290,7 +349,7 @@ class Inst(object):
 
     def todict(self) -> D[str, T[L[str], L[L[Val]]]]:
         def f(r: Rel) -> T[L[str], L[L[Val]]]:
-            return list(r.attrs), [t.tolist() for t in r.tups]
+            return list(r.attrs), [t.vals for t in r.tups]
         return {r.name: f(r) for r in self}
 
     @classmethod
@@ -298,135 +357,191 @@ class Inst(object):
         pths = [pth] if isinstance(pth, str) else pth
         return cls([Rel.fromcsv(p) for p in pths])
 
+    @classmethod
+    def empty(cls) -> 'Inst':
+        return cls([])
+
     @property
     def names(self) -> S[str]:
         return set(map(lambda r: r.name, self))
 
-
-class Atom(object):
-    def __init__(self, rel: str, tup: Tup) -> None:
-        self.rel = rel
-        self.tup = tup
+    def clean(self) -> None:
+        for r in self:
+            r.clean()
 
 
-class Query(metaclass=ABCMeta):
-    '''
-    Conjunctive query. A logical constraint with variables that, when the
-    query is satisfied, get matched to values.
-    Running the query returns all satisfying matches.
-    '''
-    @property
-    @abstractmethod
-    def var(self) -> S[Var]:
-        raise NotImplementedError
+@dataclass(order=True, frozen=True)
+class Atom:
+    '''A tuple paired with the name of a relation it belongs to'''
+    rel: str
+    tup: ImmTup
 
-    @abstractmethod
-    def run(self, i: Inst) -> Rel:
-        raise NotImplementedError
+    def __len__(self) -> int:
+        return len(self.tup)
+
+    def __getitem__(self, i: int) -> Val:
+        return self.tup[i]
+
+    def __iter__(self) -> I[Val]:
+        return iter(self.tup)
 
     def __str__(self) -> str:
-        return self.show()
-
-    @abstractmethod
-    def show(self) -> str:
-        raise NotImplementedError
-
-    def db(self) -> Inst:
-        '''Create canonical database associated with the query'''
-        raise NotImplementedError
-
-
-class Match(Query):
-    '''
-    An atom with designated variables that are quantified over.
-    '''
-    def __init__(self, atom: Atom, var: S[Var] = None) -> None:
-        self.atom = atom
-        self._var = atom.tup.variables if var is None else var
-        assert self._var
-        assert all([v in atom.tup for v in self._var])
-
-    def __eq__(self, other: Any) -> bool:
-        return isinstance(other, Match) and vars(self) == vars(other)
-
-    def show(self) -> str:
-        return '{{{}| ∀{}:{}}}'.format(
-            self.atom.rel, ','.join(map(str, self._var)),
-            self.atom.tup)
+        return '{%s|%s}' % (self.rel, self.tup)
 
     @classmethod
-    def fromlist(cls, rel: str, tup: L[Any]) -> 'Match':
-        return cls(Atom(rel, Tup.fromlist(tup)))
+    def fromlist(cls, rel: str, tup: L[Any]) -> 'Atom':
+        return cls(rel, ImmTup.fromlist(tup))
 
-    @property
-    def var(self) -> S[Var]:
-        return self._var
+    def match_rel(self, inst: Inst, dist: FS[Var]) -> Rel:
+        '''
+        Match a conjunct to a relation
+        Keep track of max variable index
+        '''
+        target = inst[self.rel]
 
-    def run(self, i: Inst) -> Rel:
-        assert self.atom.rel in i.names
-        R = i[self.atom.rel]
-        return self.match_rel(R)
+        # The columns in the result are the distinguished
+        # variables of the conjunctive query that are also
+        # found in this conjunct
+        cols, tups = [x for x in sorted(dist) if x in self.tup], []
 
-    def match_rel(self, target: Rel) -> Rel:
-        res = Rel('', list(map(str, self._var)), set())
-
+        # Process each tuple in the relation and see
+        # if it matches the pattern of this conjunct
         for tup in target:
-            tupres = self.match_tup(tup)
-            if tupres:
-                res.add(Tup([tupres[v] for v in self._var]))
-        return res
+            tup_res = self.match_tup(tup)
+            if tup_res:
+                # if it does, record what values the
+                # distinguished variables matched to
+                tups.append(MutTup([tup_res[v] for v in cols]))
+
+        result = Rel('', ['x%d' % x.num for x in cols], tups)
+        result.clean()
+        return result
 
     def match_tup(self, target: Tup) -> O[D[Var, Val]]:
-        res: D[Var, Val] = {}
+        '''Match tuple of a conjunct to the right relation'''
+        res: D[Var, Val] = {}  # mapping of variables to values
 
         def process_var_val(var: Var, val: Val) -> bool:
+            '''
+            Update mapping and return true if there
+            is inconsistent assignment.
+            '''
             if var in res and res[var] != val:
-                return True  # inconsistant
-            res[var] = val
+                return True  # inconsistant assignment
+            res[var] = val   # update mapping
             return False
 
-        for qval, val in zip(self.atom.tup, target):
+        # Process the tuple and short-circuit if
+        # there is an inconsistent mapping
+        for qval, val in zip(self.tup, target):
             fail = False
             if isinstance(qval, Var):
                 fail = process_var_val(qval, val)
-            elif isinstance(val, Var):
-                fail = process_var_val(val, qval)
-            elif qval != val:  # both are const
+            elif qval != val:  # differing consts
                 return None
             if fail:
                 return None
         return res
 
 
-class And(Query):
-    def __init__(self, q1: Query, q2: Query) -> None:
-        self.q1 = q1
-        self.q2 = q2
+@dataclass(order=True, frozen=True)
+class Query:
+    '''
+    Conjunctive query. A logical constraint with variables which, when the
+    query is satisfied, get matched to values.
 
-    def show(self) -> str:
-        return '{}\nAND\n{}'.format(self.q1.show(), self.q2.show())
+    dist indicates which variables are distinguished (the ones we care about)
+
+    Running the query returns all satisfying matches.
+    '''
+    matches: FS[Atom] = field(default_factory=frozenset)
+    dist: FS[Var] = field(default_factory=frozenset)
+
+    def __post_init__(self) -> None:
+        for d in self.dist:
+            assert d in self.matchvars
 
     @property
-    def var(self) -> S[Var]:
-        return self.q1.var | self.q2.var
+    def matchvars(self) -> FS[Var]:
+        return frozenset(set.union(*([x.tup.variables
+                                      for x in self] or [set()])))
+
+    def __str__(self) -> str:
+        if len(self) == 0:
+            return '𝗧'
+        elif len(self) == 1:
+            return str(next(iter(self)))
+        else:
+            body = '\n'.join([str(x) for x in self])
+            return '***\n%s\n***' % body
+
+    def __iter__(self) -> I[Atom]:
+        return iter(self.matches)
+
+    def __len__(self) -> int:
+        return len(self.matches)
+
+    def db(self) -> Inst:
+        '''Create canonical database associated with the query'''
+        raise NotImplementedError
 
     def run(self, i: Inst) -> Rel:
-        R1 = self.q1.run(i)
-        R2 = self.q2.run(i)
-        return R1.join(R2, save_overlap=True)
+        res = Rel(tups=[MutTup([])])
+        for conjunct in self:
+            res_ = conjunct.match_rel(i, self.dist)
+            res = res.join(res_, save_overlap=True)
+        return res
+
+    @classmethod
+    def fromatoms(cls, xs: L[Atom], dist: L[Var] = None) -> 'Query':
+        '''Default to all variables mentioned as distinguished'''
+        dist_ = frozenset(dist if dist else set.union(*[
+            x.tup.variables for x in xs]))
+        return cls(frozenset(xs), dist_)
+
+    @classmethod
+    def fromatom(cls, x: Atom, dist: L[Var] = None) -> 'Query':
+        return cls.fromatoms([x], dist)
+
+    @classmethod
+    def fromlist(cls, rel: str, tup: L[Any]) -> 'Query':
+        '''Declare a query from a single conjunct'''
+        return cls(frozenset([Atom.fromlist(rel, tup)]),
+                   frozenset([Var(t) for t in tup if isinstance(t, int)]))
+
+    @classmethod
+    def fromlists(cls, **kwargs: L[Any]) -> 'Query':
+        '''Declare multiple conjuncts together'''
+        conj = frozenset([Atom.fromlist(rel, tup)
+                          for rel, tup in kwargs.items()])
+        dist = set.union(*[c.tup.variables for c in conj])
+        return cls(conj, frozenset(dist))
+
+    def rename(self, **kwargs: str) -> 'Query':
+        return Query(frozenset([Atom(kwargs.get(a.rel, a.rel), a.tup)
+                                for a in self.matches]), self.dist)
+
+    def merge(self, q: 'Query') -> 'Query':
+        return Query(frozenset.union(self.matches, q.matches),
+                     frozenset.union(self.dist, q.dist))
 
 
 class Dependency(metaclass=ABCMeta):
     '''Sum type of EGD and TGD'''
     def fire(self, i: Inst, counter: int = None) -> O[T[Inst, int]]:
         cntr = counter or i.max_var + 1
-        return self._fire(i, cntr)
+        res = self._fire(i, cntr)
+        if res:
+            res[0].clean()
+            return res
+        return None
 
     @abstractmethod
     def _fire(self, i: Inst, counter: int) -> O[T[Inst, int]]:
         raise NotImplementedError
 
 
+@dataclass(order=True, frozen=True)
 class EGD(Dependency):
     '''
     Equality-generating dependency with the form Ψ(x,y) -> x=y
@@ -434,55 +549,97 @@ class EGD(Dependency):
     If the query is matched, then the variables 0 and 1 are
     indicated to be equal.
     '''
-    def __init__(self, q: Query) -> None:
-        self.q = q
-        assert q.var == set([Var(0), Var(1)])
+    q: Query
+
+    def __post_init__(self) -> None:
+        assert frozenset([V0, V1]).issubset(self.q.dist)
 
     def __str__(self) -> str:
         return '{} → 0 = 1'.format(self.q)
 
     def _fire(self, i: Inst, counter: int) -> O[T[Inst, int]]:
         i = copy.deepcopy(i)
-        pairs: L[T[Var, Val]] = []
-        for a0, a1 in sorted([sorted(x) for x in self.q.run(i)]):
+        res: L[T[Val, Val]] = [(x, y) for x, y in self.q.run(i).tups]
+        rep: D[Var, Val] = dict()  # representative of equiv class
+        for a0, a1 in res:
             if isinstance(a0, Var):
-                pairs.append((a0, a1))
-            elif isinstance(a1, Var):
-                pairs.append((a1, a0))
-            elif a0 != a1:
-                return None  # two unequal constants
+                if isinstance(a1, Var):
+                    if a0 in rep:
+                        if a1 in rep:
+                            t0, t1 = rep[a0], rep[a1]
+                            if t0 != t1:
+                                # BOTH vars are mapped to different things
+                                if isinstance(t0, Var):
+                                    rep[t0] = t1
+                                    for key in rep:
+                                        if rep[key] == t0:
+                                            rep[key] = t1
+                                elif isinstance(t1, Var):
+                                    rep[t1] = t0
+                                    for key in rep:
+                                        if rep[key] == t1:
+                                            rep[key] = t0
+                                else:
+                                    return None
 
+                            else:
+                                pass  # nothing to do
+                        else:
+                            # point a1 to wherever a0 was pointing
+                            rep[a1] = rep[a0]
+                    else:
+                        if a1 in rep:
+                            # point a0 to wherever a1 was pointing
+                            rep[a0] = rep[a1]
+                        else:
+                            # Neither var is mapped, arbitrarily pick
+                            rep[a0] = a1
+                else:
+                    # a0 is var, a1 in const
+                    rep[a0] = a1
+            else:
+                if isinstance(a1, Var):
+                    # a0 is const, a1 is var
+                    rep[a1] = a0
+                else:
+                    # two consts: fail if they're supposed to be equal
+                    if a0 != a1:
+                        return None
+                    else:
+                        pass
         for rel in i:
-            for var, val in pairs:
+            for var, val in rep.items():
                 rel.substitute(var, val)
         return i, counter
 
 
+@dataclass(order=True, frozen=True)
 class TGD(Dependency):
     '''
     Tuple-generating dependency. For some variables that match a constraint
     (the antecedent query), we demand there exist certain atoms (involving
     those variables, plus others which are implicitly quantified over via ∃).
     '''
-    def __init__(self, q: Query, exists: S[T[str, Tup]]) -> None:
-        self.q = q
-        self.exists = exists
+    q: Query
+    exists: FS[Atom] = field(default_factory=frozenset)
 
     def __str__(self) -> str:
         return '{} → ∃ {}'.format(
-            self.q, ', '.join(['{}:{}'.format(k, v) for k, v in self.exists]))
+            self.q, ', '.join(['{}:{}'.format(atom.rel, atom.tup)
+                               for atom in self.exists]))
 
     @classmethod
     def fromlist(cls, q: Query, **exists: L[Any]) -> 'TGD':
-        return cls(q, set([(k, Tup.fromlist(v)) for k, v in exists.items()]))
+        return cls(q, frozenset([Atom(k, ImmTup.fromlist(v))
+                                 for k, v in exists.items()]))
 
     @property
     def exists_vars(self) -> S[Var]:
-        return set.union(*[x.variables for _, x in self.exists]) - self.q.var
+        return set.union(*[x.tup.variables for x in self.exists]) - self.q.dist
 
     @property
     def bound_vars(self) -> S[Var]:
-        return set.union(*[x.variables for _, x in self.exists]) & self.q.var
+        return set.union(*[x.tup.variables for x in self.exists]) & self.q.dist
 
     def _fire(self, i: Inst, counter: int) -> O[T[Inst, int]]:
         c = [counter]
@@ -492,25 +649,75 @@ class TGD(Dependency):
             return Var(c[0])
 
         i = copy.deepcopy(i)
-        v = sorted(self.q.var)
+        v = sorted(self.q.dist)
         for res in self.q.run(i):
             dic = dict(zip(v, res))
-            for relname, tup in self.exists:
+            for atom in self.exists:
                 newtup = [dic.get(val, new(c)) if isinstance(val, Var) else val
-                          for val in tup]
-                i[relname].add(Tup(newtup))
+                          for val in atom.tup]
+                i[atom.rel].tups.append(MutTup(newtup))
 
         return i, c[0]
 
 
-class Dependencies(object):
+@dataclass(order=True, frozen=True)
+class ChaseResult():
+    init: Inst
+    sequence: T[T[Dependency, Inst], ...] = ()
+    timeout: bool = False
+    fail: O[Dependency] = None
+
+    def __len__(self) -> int:
+        return len(self.sequence)
+
+    def __iter__(self) -> I[T[Dependency, Inst]]:
+        return iter(self.sequence)
+
+    def result(self) -> O[Inst]:
+        if not self.timeout and not self.fail:
+            return self.sequence[-1][1]
+        else:
+            return None
+
+
+@dataclass(order=True, frozen=True)
+class Dependencies():
     '''Methods depending on sets of dependencies'''
 
-    def __init__(self, deps: S[Dependency]) -> None:
-        self.deps = deps
+    deps: FS[Dependency] = field(default_factory=frozenset)
 
-    def chase(self, i: Inst) -> Inst:
-        raise NotImplementedError
+    @classmethod
+    def fromlist(cls, deps: L[Dependency]) -> 'Dependencies':
+        return cls(frozenset(deps))
+
+    def chase(self, i: Inst, limit: int = 100) -> ChaseResult:
+        '''
+        Naive chase algorithm with a step limit
+        to prevent nontermination
+
+        Fire dependencies randomly until convergence.
+        '''
+        init, i_init, i_prev = True, i, i
+        sequence: L[T[Dependency, Inst]] = []
+
+        while init or i != i_prev:
+            init = False
+            i_prev = i
+            max_var = i.max_var
+            deps = list(self.deps)
+            random.shuffle(deps)
+            for dep in deps:
+                if len(sequence) > limit:
+                    return ChaseResult(i_init, tuple(sequence), True)
+
+                res = dep.fire(i, max_var)
+                if res:
+                    i, max_var = res
+                    sequence.append((dep, i))
+
+                else:
+                    return ChaseResult(i_init, tuple(sequence), fail=dep)
+        return ChaseResult(i_init, tuple(sequence))
 
 
 def main() -> None:
