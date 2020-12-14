@@ -41,6 +41,7 @@ Val = U[Var, Const]
 
 class Tup(metaclass=ABCMeta):
     '''Relational tuples, i.e. sequences of Vars or Consts'''
+
     def __init__(self, vals: U[L[Val], T[Val, ...]]) -> None:
         self.vals = vals
 
@@ -281,6 +282,10 @@ class Rel:
         '''Modify relation, replacing a variable with a value'''
         for t in self:
             t.substitute(var, val)
+
+    def substitutes(self, d: D[Var, Val]) -> None:
+        for k, v in d.items():
+            self.substitute(k, v)
 
     def rename_attrs(self, **kwargs: str) -> None:
         '''Rename with a dictionary of old_col -> new_col pairs'''
@@ -528,6 +533,7 @@ class Query:
 
 class Dependency(metaclass=ABCMeta):
     '''Sum type of EGD and TGD'''
+
     def fire(self, i: Inst, counter: int = None) -> O[T[Inst, int]]:
         cntr = counter or i.max_var + 1
         res = self._fire(i, cntr)

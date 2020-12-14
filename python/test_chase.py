@@ -6,6 +6,7 @@ from chase import (Var, Tup, Const, Rel, Inst, EGD, TGD, Query,
                    Dependencies)
 from hypothesis import assume, given, strategies as s
 import string
+import copy
 
 """
 Run with python -m pytest test_chase.py
@@ -102,7 +103,7 @@ Rels1305 = n_1_3.flatmap(lambda n: n_0_5.flatmap(lambda m: Rels(n, m)))
 
 # Generator for instances of 0 to 3 relations
 Insts = s.builds(Inst, s.lists(Rels1305, min_size=0, max_size=3,
-                               unique_by=lambda r: r.name))
+                               unique_by=lambda r: r.name))  # type:ignore
 
 
 @s.composite
@@ -182,7 +183,7 @@ iDep = Insts.flatmap(lambda i: s.tuples(s.just(i), Deps(i)))
 iEGD = Insts.flatmap(lambda i: s.tuples(s.just(i), EGDs(i)))
 iDeps2 = Insts.flatmap(lambda i: s.tuples(
     s.just(i), s.builds(Dependencies, s.frozensets(Deps(i),
-                        min_size=0, max_size=3))))
+                                                   min_size=0, max_size=3))))
 
 
 #########
@@ -216,13 +217,18 @@ def test_inst_todict_fromdict(i: Inst) -> None:
 
 def test_validate_match() -> None:
     """Check whether ..."""
-    res = Rel.fromlist([['x', 2], ['d', 3]], attrs=['4', '5'])
+    res = Rel.fromlist([['d', 3]], attrs=['x4', 'x5'])
     assert Query.fromatom(q1).run(i1) == res
-    res = Rel.fromlist([['x'], ['y']], attrs=['4'])
+    res = Rel.fromlist([['x'], ['y']], attrs=['x4'])
     assert Query.fromatom(q2).run(i1) == res
 
 
 # DEPS
+def test_join() -> None:
+    assert ab == Rel.fromlist([[1, 2, "x"], [1, 2, "y"]], "A ⋈ B", [
+                              "col1", "col3", "col4"])
+
+
 def test_fire() -> None:
 
     # Matching triangle for simple edges gives the same relation back
@@ -243,7 +249,7 @@ def test_fire() -> None:
 
     # Detect self loop
     assert Query.fromatom(selfedge).run(iTriangle11) == Rel.fromlist(
-        [['a']], '', ['x0'])
+        [[1]], '', ['x0'])
     # Detect nothing in triangle w/o loop
     assert len(Query.fromatom(selfedge).rename(
         TriangleLoop='Triangle').run(iTriangle).tups) == 0
@@ -251,7 +257,7 @@ def test_fire() -> None:
     # Get a single '1' added to relation N after firing
     res_ = tgd.fire(iTriangle_N)
     assert res_
-    assert res_[0]['N'] == Rel.fromlist([['a']], 'N', ['col1'])
+    assert res_[0]['N'] == Rel.fromlist([[1]], 'N', ['col1'])
 
 
 @given(nonmatching_query())
@@ -287,13 +293,14 @@ def test_egd_idempotent(idep: T[Inst, EGD]) -> None:
 
 
 def test_chase() -> None:
-
+    tri = copy.deepcopy(iTriangle['Triangle'])
+    tri.substitutes({V0: Const("a"), V1: Const("b"), Var(3): Const("c")})
     # If there's an edge a->b, then there's an edge b->a
     deps = Dependencies.fromlist([
         TGD.fromlist(Query.fromatom(edge), Triangle=[1, 0])
     ])
 
-    res = deps.chase(iTriangle)
+    res = deps.chase(Inst([tri]))
     assert res.fail is None and not res.timeout
     assert len(res) == 2
 
