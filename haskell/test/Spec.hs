@@ -1,5 +1,7 @@
 import Data.Map as M
+import Data.Maybe (fromJust)
 import Data.Set as Set
+import Data.Vector as V
 import Lib
 import System.IO.Unsafe (unsafePerformIO)
 import Test.Tasty (defaultMain, testGroup)
@@ -48,11 +50,13 @@ q3 = Set.fromList [q1, q2]
 
 edge = atomFromList "Triangle" ["0", "1"]
 
+edge' = atomFromList "Triangle" ["1", "0"]
+
 selfEdge = atomFromList "TriangleLoop" ["0", "0"]
 
-egdBidirectional = EGD $ Set.fromList [edge, atomFromList "Triangle" ["1", "0"]]
+egdBidirectional = EGD $ qFromAtoms [edge, edge']
 
-egdEdge = EGD $ Set.fromList [edge]
+egdEdge = EGD $ qFromAtoms [edge]
 
 main :: IO ()
 main =
@@ -73,6 +77,17 @@ main =
                       ["1", "2", "y"]
                     ]
                 ),
-            testCase "query" $ assertEqual "" triangle (rename (run egdEdge triangle) $ M.fromList [("x0", "src", "x1", "tar")])
+            testCase "queryIdentity" $
+              assertEqual
+                ""
+                (tups triangle)
+                (tups (run (egd egdEdge) triangle)),
+            testCase "queryEmpty" $
+              assertEqual
+                ""
+                Set.empty
+                (tups (run (egd egdBidirectional) triangle)),
+            testCase "query" $ assertEqual "" (fromLists [["1", "1"]]) (tups $ run (qFromAtoms [selfEdge]) triangle11),
+            testCase "fireTriangleCollapse" $ assertEqual "" (fromLists [["1", "1"]]) (tups $ fromJust $ fireEGD egdEdge triangle)
           ]
       ]

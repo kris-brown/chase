@@ -293,6 +293,7 @@ def test_egd_idempotent(idep: T[Inst, EGD]) -> None:
 
 
 def test_chase() -> None:
+    '''Unit test for computing a terminating chase'''
     tri = copy.deepcopy(iTriangle['Triangle'])
     tri.substitutes({V0: Const("a"), V1: Const("b"), Var(3): Const("c")})
     # If there's an edge a->b, then there's an edge b->a

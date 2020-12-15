@@ -47,7 +47,7 @@ library
       boxes,
       extra
   default-language: Haskell2010
-  default-extensions: OverloadedStrings TemplateHaskell FlexibleInstances FlexibleContexts RankNTypes ScopedTypeVariables TypeApplications TypeFamilies InstanceSigs DeriveGeneric DerivingVia DeriveGeneric
+  default-extensions: OverloadedStrings TemplateHaskell FlexibleInstances FlexibleContexts RankNTypes ScopedTypeVariables TypeApplications TypeFamilies InstanceSigs DeriveGeneric DerivingVia DeriveGeneric LambdaCase
 
 executable chase-exe
   main-is: Main.hs
@@ -75,6 +75,7 @@ test-suite chase-test
     , tasty
     , tasty-hunit
     , containers
+    , vector
 
   default-language: Haskell2010
   default-extensions: OverloadedStrings TemplateHaskell FlexibleInstances FlexibleContexts RankNTypes ScopedTypeVariables TypeApplications TypeFamilies InstanceSigs DeriveGeneric DerivingVia

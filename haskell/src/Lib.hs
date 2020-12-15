@@ -2,10 +2,11 @@ module Lib
   ( Var,
     Val (..),
     Tup,
-    Relation,
+    Relation (..),
     RelName,
     Atom (..),
     Dict,
+    Query (..),
     TGD (..),
     EGD (..),
     FD,
@@ -20,24 +21,32 @@ module Lib
     fromCSV,
     someFunc,
     atomFromList,
+    run,
     join,
     joins,
+    qFromAtoms,
+    matchRel,
+    matchDict,
+    matchTup,
+    fireEGD,
   )
 where
 
+import Control.Monad (foldM)
 import Data.List as L
 import Data.Map as M
-import Data.Maybe (fromJust)
+import Data.Maybe as MB (Maybe (..), fromJust, mapMaybe, maybe)
 import Data.Set as Set
 import Data.Text as T hiding (all, replicate, zip)
 import Data.Validity (Validity (..), trivialValidation)
 import Data.Vector as V hiding (foldM, replicate, (++), (//))
+--import Debug.Trace (trace)
 import GHC.Generics (Generic)
 import System.Directory (doesFileExist, getHomeDirectory)
 import Text.CSV (parseCSVFromFile)
 import Text.PrettyPrint.Boxes as Box
 import Text.Read (readMaybe)
-import Prelude as P hiding (all)
+import Prelude as P
 
 -- Values are either constants (let's restrict to strings) or variables (int indexed)
 type Var = Int
@@ -166,20 +175,19 @@ vToSet :: Ord a => Vector a -> Set a
 vToSet = Set.fromList . V.toList
 
 join :: Bool -> Relation -> Relation -> Relation
-join saveOverlap (Relation _ nAttr nTup) (Relation _ mAttr mTup) =
-  Relation "" (V.fromList (overlapAttr ++ resattr)) (Set.fromList tup)
+join saveOverlap (Relation _ nAttr nTup) (Relation _ mAttr mTup) = Relation "" (V.fromList (overlapAttr ++ resattr)) (Set.fromList tup)
   where
     allattr = Set.fromList (V.toList nAttr ++ V.toList mAttr)
     overlap = Set.intersection (vToSet nAttr) (vToSet mAttr)
-    overlapAttr = if not saveOverlap then [] else Set.toList overlap
+    overlapAttr = if not saveOverlap then [] else Set.toList overlap -- [x0, x1]
     resattr = Set.toList $ Set.difference allattr overlap
-    getinds x = P.map (\i -> fromJust $ L.elemIndex i $ V.toList x) $ Set.toList overlap
+    getinds x = P.map (\i -> MB.fromJust $ L.elemIndex i $ V.toList x) $ Set.toList overlap
     inds = P.zip (getinds nAttr) (getinds mAttr)
     attrOnly x = Set.toList $ Set.difference (vToSet x) overlap
-    newinds = (if saveOverlap then getinds nAttr else []) ++ [fromJust $ L.elemIndex a $ V.toList nAttr | a <- attrOnly nAttr]
-    mNewInds = [fromJust $ L.elemIndex a $ V.toList mAttr | a <- attrOnly mAttr]
+    newinds = (if saveOverlap then getinds nAttr else []) ++ [MB.fromJust $ L.elemIndex a $ V.toList nAttr | a <- attrOnly nAttr]
+    mNewInds = [MB.fromJust $ L.elemIndex a $ V.toList mAttr | a <- attrOnly mAttr]
     merge x y = V.fromList $ [x V.! i | i <- newinds] ++ [y V.! i | i <- mNewInds]
-    tup = [merge nt mt | nt <- Set.toList nTup, mt <- Set.toList mTup, (i, j) <- inds, nt V.! i == mt V.! j]
+    tup = [merge nt mt | nt <- Set.toList nTup, mt <- Set.toList mTup, P.and [nt V.! i == mt V.! j | (i, j) <- inds]]
 
 rEmpty :: Relation
 rEmpty = Relation "" V.empty Set.empty
@@ -194,22 +202,62 @@ rename (Relation n a t) m = Relation n a' t
   where
     a' = V.map (\x -> M.findWithDefault x x m) a
 
-matchRel :: Atom -> Relation -> Set Var -> Relation
-matchRel = undefined
+matchTup :: Tup -> Tup -> Maybe Tup
+matchTup x y = do
+  d <- matchDict x y
+  return $ tSub d x
 
+matchDict :: Tup -> Tup -> Maybe Dict
+matchDict x y = foldM f M.empty $ V.zip x y
+  where
+    f d (V a, b) = case M.lookup a d of
+      Nothing -> Just (M.insert a b d)
+      Just c -> if b /= c then Nothing else Just d
+    f d (C a, b) = if C a == b then Just d else Nothing
+
+tSub :: Dict -> Tup -> Tup
+tSub d =
+  V.map
+    ( \x -> case x of
+        C _ -> x
+        V i -> M.findWithDefault x i d
+    )
+
+matchRel :: Atom -> Relation -> [Var] -> Relation
+matchRel (Atom _ tupl) (Relation _ _ tupls) dist = Relation "" colnames res
+  where
+    cols = V.filter (`P.elem` P.map V dist) tupl
+    colnames = V.map (\x -> T.pack $ "x" ++ show x) cols
+    res = Set.fromList $ MB.mapMaybe (matchTup tupl) $ Set.toList tupls
+
+-- Fix this so that it runs on an instance and feeds matchRel the right Rel
 run :: Query -> Relation -> Relation
 run (Query matchs dist) r = joins (P.map f $ Set.toList matchs) True
   where
-    f atom = matchRel atom r dist
+    f atom = matchRel atom r $ Set.toList dist
+
+allvars :: Atom -> Set Var
+allvars =
+  Set.fromList
+    . MB.mapMaybe
+      ( \case
+          C _ -> Nothing
+          V v -> Just v
+      )
+    . V.toList
+    . tup
+
+qFromAtoms :: [Atom] -> Query
+qFromAtoms xs = Query xs' allvar
+  where
+    xs' = Set.fromList xs
+    allvar = Set.unions $ Set.map allvars xs'
 
 ------------------------
 -- Dependency related --
 ------------------------
-satTGD :: TGD -> Inst -> Maybe FireInput
-satTGD = undefined
-
-satEGD :: EGD -> Inst -> Maybe FireInput
-satEGD = undefined
+fireEGD :: EGD -> Relation -> Maybe Relation
+fireEGD = undefined
 
 -- Fire an equality constraint (unify two vars, if both const, then fail)
 -- fireEqTup :: Inst -> Atom -> Maybe Inst
