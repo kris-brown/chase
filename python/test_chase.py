@@ -186,33 +186,14 @@ iDeps2 = Insts.flatmap(lambda i: s.tuples(
                                                    min_size=0, max_size=3))))
 
 
-#########
-# Tests #
-#########
-
-@given(Rels1305)
-def test_rels_is_valid(r: Rel) -> None:
-    '''Test whether generated rels are well-formed'''
-    n = len(r.attrs)
-    assert n == len(set(r.attrs))
-    assert all([len(x) == n for x in r])
-
+##############
+# Unit Tests #
+##############
 
 # IO
 def test_validate_fromcsv() -> None:
     '''Two equivalent ways of representing the same database'''
     assert i1 == i1_
-
-
-# ROUNDTRIP
-@given(MutTups13)
-def test_tup_tolist_fromlist(t: MutTup) -> None:
-    assert t.fromlist(t.vals) == t
-
-
-@given(Insts)
-def test_inst_todict_fromdict(i: Inst) -> None:
-    assert i.fromdict(**i.todict()) == i
 
 
 def test_validate_match() -> None:
@@ -229,12 +210,26 @@ def test_join() -> None:
                               "col1", "col3", "col4"])
 
 
-def test_fire() -> None:
+def test_query() -> None:
 
     # Matching triangle for simple edges gives the same relation back
     res = egd_edge.q.run(iTriangle)
     res.rename_attrs(**{'x0': 'src', 'x1': 'tar'})
     assert res.rename('Triangle') == iTriangle['Triangle']
+
+    # There are no bidirectional edges in Triangle
+    assert len(egd_bidirectional.q.run(iTriangle).tups) == 0
+
+    # Detect self loop
+    assert Query.fromatom(selfedge).run(iTriangle11) == Rel.fromlist(
+        [[1]], '', ['x0'])
+
+    # Detect nothing in triangle w/o loop
+    assert len(Query.fromatom(selfedge).rename(
+        TriangleLoop='Triangle').run(iTriangle).tups) == 0
+
+
+def test_fire() -> None:
 
     # Forcing all pairs (12, 23, 31) to be equal gives a single loop
     ires = egd_edge.fire(iTriangle)
@@ -244,20 +239,47 @@ def test_fire() -> None:
     t = list(res.tups)[0]
     assert t[0] == t[1]  # it's a self edge
 
-    # There are no bidirectional edges in Triangle
-    assert len(egd_bidirectional.q.run(iTriangle).tups) == 0
-
-    # Detect self loop
-    assert Query.fromatom(selfedge).run(iTriangle11) == Rel.fromlist(
-        [[1]], '', ['x0'])
-    # Detect nothing in triangle w/o loop
-    assert len(Query.fromatom(selfedge).rename(
-        TriangleLoop='Triangle').run(iTriangle).tups) == 0
-
     # Get a single '1' added to relation N after firing
     res_ = tgd.fire(iTriangle_N)
     assert res_
     assert res_[0]['N'] == Rel.fromlist([[1]], 'N', ['col1'])
+
+
+def test_chase() -> None:
+    '''Unit test for computing a terminating chase'''
+    tri = copy.deepcopy(iTriangle['Triangle'])
+    tri.substitutes({V0: Const("a"), V1: Const("b"), Var(3): Const("c")})
+    # If there's an edge a->b, then there's an edge b->a
+    deps = Dependencies.fromlist([
+        TGD.fromlist(Query.fromatom(edge), Triangle=[1, 0])
+    ])
+
+    res = deps.chase(Inst([tri]))
+    assert res.fail is None and not res.timeout
+    assert len(res) == 2
+
+##################
+# Property Tests #
+##################
+
+# Generator tests
+@given(Rels1305)
+def test_rels_is_valid(r: Rel) -> None:
+    '''Test whether generated rels are well-formed'''
+    n = len(r.attrs)
+    assert n == len(set(r.attrs))
+    assert all([len(x) == n for x in r])
+
+
+# ROUNDTRIPS
+@given(MutTups13)
+def test_tup_tolist_fromlist(t: MutTup) -> None:
+    assert t.fromlist(t.vals) == t
+
+
+@given(Insts)
+def test_inst_todict_fromdict(i: Inst) -> None:
+    assert i.fromdict(**i.todict()) == i
 
 
 @given(nonmatching_query())
@@ -290,20 +312,6 @@ def test_egd_idempotent(idep: T[Inst, EGD]) -> None:
         res2 = d.fire(ires)  #
         assert res2
         assert res2[0] == ires
-
-
-def test_chase() -> None:
-    '''Unit test for computing a terminating chase'''
-    tri = copy.deepcopy(iTriangle['Triangle'])
-    tri.substitutes({V0: Const("a"), V1: Const("b"), Var(3): Const("c")})
-    # If there's an edge a->b, then there's an edge b->a
-    deps = Dependencies.fromlist([
-        TGD.fromlist(Query.fromatom(edge), Triangle=[1, 0])
-    ])
-
-    res = deps.chase(Inst([tri]))
-    assert res.fail is None and not res.timeout
-    assert len(res) == 2
 
 
 if __name__ == '__main__':

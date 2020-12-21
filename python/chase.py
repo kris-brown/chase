@@ -602,11 +602,17 @@ class EGD(Dependency):
                             rep[a0] = a1
                 else:
                     # a0 is var, a1 in const
-                    rep[a0] = a1
+                    if a0 in rep and rep[a0] != a1:
+                        return None
+                    else:
+                        rep[a0] = a1
             else:
                 if isinstance(a1, Var):
                     # a0 is const, a1 is var
-                    rep[a1] = a0
+                    if a1 in rep and rep[a1] != a0:
+                        return None
+                    else:
+                        rep[a1] = a0
                 else:
                     # two consts: fail if they're supposed to be equal
                     if a0 != a1:

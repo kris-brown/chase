@@ -1,6 +1,7 @@
 module Main where
 
-import Lib
+import Rel
+import Dep
 
 main :: IO ()
-main = someFunc
+main = putStrLn "No Main Function yet"

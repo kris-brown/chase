@@ -27,7 +27,7 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
+      Dep Rel
   other-modules:
       Paths_chase
   hs-source-dirs:
@@ -68,7 +68,7 @@ test-suite chase-test
       Paths_chase
   hs-source-dirs:
       test
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
   build-depends:
       base >=4.7 && <5
     , chase
