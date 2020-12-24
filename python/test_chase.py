@@ -263,6 +263,8 @@ def test_chase() -> None:
 ##################
 
 # Generator tests
+
+
 @given(Rels1305)
 def test_rels_is_valid(r: Rel) -> None:
     '''Test whether generated rels are well-formed'''

@@ -45,7 +45,12 @@ library
       directory,
       csv,
       boxes,
-      extra
+      genvalidity-hspec,
+      extra,
+      QuickCheck,
+      quickcheck-instances
+
+
   default-language: Haskell2010
   default-extensions: OverloadedStrings TemplateHaskell FlexibleInstances FlexibleContexts RankNTypes ScopedTypeVariables TypeApplications TypeFamilies InstanceSigs DeriveGeneric DerivingVia DeriveGeneric LambdaCase
 
@@ -76,6 +81,11 @@ test-suite chase-test
     , tasty-hunit
     , containers
     , vector
+    , validity
+    , genvalidity-hspec
+    , hspec
+    , QuickCheck
+
 
   default-language: Haskell2010
   default-extensions: OverloadedStrings TemplateHaskell FlexibleInstances FlexibleContexts RankNTypes ScopedTypeVariables TypeApplications TypeFamilies InstanceSigs DeriveGeneric DerivingVia

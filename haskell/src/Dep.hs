@@ -18,6 +18,7 @@ module Dep
     matchTup,
     fireEGD,
     chase,
+    qRename,
   )
 where
 
@@ -45,23 +46,23 @@ import Prelude as P
 
 type Dict = M.Map Var Val
 
+-- A pattern to be matched to tuples of a particular relation
 data Atom = Atom {rel :: RelName, tup :: Tup} deriving (Eq, Ord)
 
+-- Conjunctive query. A logical constraint with variables which, when the
+-- query is satisfied, get matched to values.
+-- Give distinguished variables (ones quantified over)
+-- Running the query returns all satisfying matches.
 data Query = Query {unQuery :: Set Atom, distinguished :: Set Var} deriving (Eq, Ord)
 
 -- Tuple-generating dependency
 data TGD = TGD {alpha :: Query, beta :: Set Atom}
 
 -- Equality-generating dependency
-newtype EGD = EGD {egd :: Query} -- implicit: asserting equality over vars 'a' 'b'
+newtype EGD = EGD {egd :: Query} -- implicit: asserting equality over vars 0 1
 
 -- Functional dependency
 type FD = Either TGD EGD
-
-type FireInput =
-  Either
-    ([Var], [Tup]) -- create these tuples
-    (Var, Val) -- overwrite this var with this val
 
 type FDs = Set.Set FD
 
@@ -72,42 +73,56 @@ type Counter = Int
 atomFromList :: String -> [String] -> Atom
 atomFromList n xs = Atom (T.pack n) (tupFromList xs)
 
+------------
+-- Queries -
+------------
+qRename :: Query -> Map RelName RelName -> Query
+qRename q m = q {unQuery = Set.map f (unQuery q)}
+  where
+    f (Atom r t) = Atom (M.findWithDefault r r m) t
+
 ------------------------
 -- MISC --
 ----------
 
+-- For each distinguished variable in `vals`
+-- (which must be found in the pattern tuple; it's up to matchRel to enforce this)
 --
-matchTup :: Tup -> Tup -> Maybe Tup
-matchTup x y = matchDict x y >>= (\dict -> pure $ tSub dict x)
+matchTup :: Vector Var -> Tup -> Tup -> Maybe Tup
+matchTup vals pattrn potentialMatch =
+  matchDict pattrn potentialMatch >>= (\dict -> pure $ lookUp dict vals)
+  where
+    lookUp d = V.map (d M.!)
 
+-- Given a pattern (with variables) and a target, find a mapping
+-- of its variables that yields the target tuple, if possible
 matchDict :: Tup -> Tup -> Maybe Dict
-matchDict x y = foldM f M.empty $ V.zip x y
+matchDict pattrn potentialMatch = foldM f M.empty $ V.zip pattrn potentialMatch
   where
     f d (V a, b) = case M.lookup a d of
       Nothing -> Just (M.insert a b d)
       Just c -> if b /= c then Nothing else Just d
     f d (C a, b) = if C a == b then Just d else Nothing
 
-tSub :: Dict -> Tup -> Tup
-tSub d =
-  V.map
-    ( \x -> case x of
-        C _ -> x
-        V i -> M.findWithDefault x i d
-    )
-
-matchRel :: Atom -> Relation -> [Var] -> Relation
-matchRel (Atom _ tupl) (Relation _ _ tupls) dist = Relation "" colnames res
+-- For some list of distinguished variables (found in an atom's tuple)
+-- create a relation by trying to match that tuple with each row of a
+-- given relation
+matchRel :: Atom -> Inst -> [Var] -> Relation
+matchRel (Atom aRel aTupl) (Inst i) dist = Relation "" colnames res
   where
-    cols = V.filter (`P.elem` P.map V dist) tupl
+    tupls = tups $ i M.! aRel
+    cols = V.filter (`P.elem` P.map V dist) aTupl
+    colvals = V.mapMaybe isVar cols
     colnames = V.map varToColName cols
-    res = Set.fromList $ MB.mapMaybe (matchTup tupl) $ Set.toList tupls
+    res = Set.fromList $ MB.mapMaybe (matchTup colvals aTupl) $ Set.toList tupls
 
 -- Fix this so that it runs on an instance and feeds matchRel the right Rel
-run :: Query -> Relation -> Relation
-run (Query matchs dist) r = joins (P.map f $ Set.toList matchs) True
+run :: Query -> Inst -> Relation
+run (Query matchs dist) i = project res newcols
   where
-    f atom = matchRel atom r $ Set.toList dist
+    f atom = matchRel atom i $ Set.toList dist
+    res = joins (P.map f $ Set.toList matchs) True
+    newcols = P.map (varToColName . V) $ Set.toList dist
 
 isVar :: Val -> Maybe Var
 isVar (C _) = Nothing
@@ -116,22 +131,12 @@ isVar (V x) = Just x
 tupVars :: Tup -> Vector Var
 tupVars = V.mapMaybe isVar
 
-atomVars :: Atom -> Set Var
-atomVars =
-  Set.fromList
-    . MB.mapMaybe
-      ( \case
-          C _ -> Nothing
-          V v -> Just v
-      )
-    . V.toList
-    . tup
-
 qFromAtoms :: [Atom] -> Query
 qFromAtoms xs = Query xs' allvar
   where
     xs' = Set.fromList xs
     allvar = Set.unions $ Set.map atomVars xs'
+    atomVars = Set.fromList . V.toList . tupVars . tup
 
 ------------------------
 -- Dependency related --
@@ -142,13 +147,14 @@ mkEGD q
   | distinguished q /= Set.fromList [0, 1] = error "EGD query must have distinguished 0 and 1"
   | otherwise = EGD q
 
-fireEGD :: Relation -> EGD -> Maybe Relation
-fireEGD r (EGD q) = substitute r <$> subdict
+fireEGD :: Inst -> EGD -> Maybe Inst
+fireEGD i (EGD q) = flip substitute i <$> subdict
   where
-    res = Set.map (\x -> (x V.! 0, x V.! 1)) $ tups $ run q r
+    res = Set.map (\x -> (x V.! 0, x V.! 1)) $ tups $ run q i
     subdict = foldM fireEGDfold M.empty res
 
--- Make a variable point to a value. Also, in case othre things point to that variable, replace all things that point to it with a pointer the new target
+-- Make a variable point to a value. Also, in case other things point to that variable,
+-- replace all things that point to it with a pointer the new target
 pointTo :: Var -> Val -> Dict -> Dict
 pointTo i v = M.insert i v . M.map f
   where
@@ -168,16 +174,16 @@ fireEGDfold d (V x, V y) = case (M.lookup x d, M.lookup y d) of
   (Just z, Just (V a)) -> Just $ pointTo a z d
   (Just (C a), Just (C b)) -> if a == b then Just d else Nothing
 
-fireTGD :: TGD -> Relation -> Counter -> (Relation, Counter)
-fireTGD (TGD q ts) r c = (r {tups = Set.union (tups r) newtups}, c')
+fireTGD :: TGD -> Inst -> Counter -> (Inst, Counter)
+fireTGD (TGD q ts) i c = result --(r {tups = Set.union (tups r) newtups}, c')
   where
-    res = run q r
+    res = run q i
     dist = distinguished q
     columnMap = M.fromSet (MB.fromJust . flip V.elemIndex (attrs res) . varToColName . V) dist
     dicts = Set.map (\t -> M.map (t V.!) columnMap) (tups res)
-    (newtups, c') = L.foldl' (tgdMapFunc (Set.toList ts)) (Set.empty, c) $ Set.toList dicts
+    result = L.foldl' (tgdMapFunc (Set.toList ts)) (i, c) $ Set.toList dicts
 
-type TGDstate = (Set Tup, Int)
+type TGDstate = (Inst, Int)
 
 -- Generate a tuple and possibly update the counter
 -- Do this for every Atom in the TGD consequent clause
@@ -187,7 +193,7 @@ tgdMapFunc atoms tgdstate t = L.foldl' (tgdMapFunc' t) tgdstate atoms
 -- Generate a tuple and possibly update the counter
 -- for a particular Atom in the TGD consequent clause
 tgdMapFunc' :: Dict -> TGDstate -> Atom -> TGDstate
-tgdMapFunc' mapping (oldTups, counter) atom = (Set.insert newTups oldTups, counter + nUnbound)
+tgdMapFunc' mapping (oldInst, counter) atom = (addTup oldInst (rel atom) newTups, counter + nUnbound)
   where
     atomTup = tup atom
     isUnbound v = not $ M.member v mapping
@@ -196,8 +202,17 @@ tgdMapFunc' mapping (oldTups, counter) atom = (Set.insert newTups oldTups, count
     newTups = tupSubstitute (M.union mapping unboundMap) atomTup
     nUnbound = V.length unbound
 
-substitute :: Relation -> Dict -> Relation
-substitute (Relation n a t) d = Relation n a (Set.map (tupSubstitute d) t)
+addTup :: Inst -> RelName -> Tup -> Inst
+addTup (Inst i) rn t = Inst $ M.updateAt upd (M.findIndex rn i) i
+  where
+    upd _ r = Just $ r {tups = Set.insert t (tups r)}
+
+relSubstitute :: Dict -> Relation -> Relation
+relSubstitute d (Relation n a t) = Relation n a (Set.map (tupSubstitute d) t)
+
+-- Apply a mapping of variables to values to an instance
+substitute :: Dict -> Inst -> Inst
+substitute d = Inst . M.map (relSubstitute d) . rels
 
 tupSubstitute :: Dict -> Tup -> Tup
 tupSubstitute = V.map . valSubstitute
